@@ -1,3 +1,7 @@
+# Unreleased
+
+* Add `Worksheet#move_range` for moving a rectangular range of cells within a worksheet (cut/paste semantics): formulas anywhere in the workbook (A1 references, union references, cross-sheet references -- relative and absolute alike) and workbook-level defined names that point at the moved cells are redirected to the new location. Array formulas, shared formulas, table structured references and tables are rejected up front, before anything is modified.
+
 # v3.4.25 (May 19, 2022)
 
 * Improve code style and consistently (@weshatheleopard)
