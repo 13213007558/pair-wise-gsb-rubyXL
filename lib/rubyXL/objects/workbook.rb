@@ -1,5 +1,6 @@
 require 'date'
 require 'rubyXL/objects/ooxml_object'
+require 'rubyXL/style_compressor'
 require 'rubyXL/objects/shared_strings'
 require 'rubyXL/objects/stylesheet'
 require 'rubyXL/objects/theme'
@@ -506,6 +507,12 @@ module RubyXL
       new_worksheet = Worksheet.new(:workbook => self, :sheet_name => name)
       worksheets << new_worksheet
       new_worksheet
+    end
+
+    # Compress stylesheet records using their resolved OOXML semantics and rewrite
+    # every modeled style reference. Theme colors remain theme references by default.
+    def compress_styles(preserve_theme_colors: true)
+      RubyXL::StyleCompressor.compress(self, :preserve_theme_colors => preserve_theme_colors)
     end
 
     def created_at
