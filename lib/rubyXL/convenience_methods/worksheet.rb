@@ -1,3 +1,5 @@
+require 'rubyXL/formula_shifter'
+
 module RubyXL
   module WorksheetConvenienceMethods
     NAME = 0
@@ -235,6 +237,128 @@ module RubyXL
       }
 
       merged_cells.delete_if { |mc| mc.ref.single_cell? }
+    end
+
+    # Moves (cuts and pastes) a rectangular range of cells to a new location on
+    # the same worksheet, updating all formulas in the workbook and all defined
+    # names so that references to the moved cells follow them to the new
+    # location (absolute addresses included: their target moved, so they move).
+    #
+    # +source+ and +destination+ are A1-style references; +destination+ may be
+    # either the top-left cell of the target area or a range of the same
+    # dimensions as +source+. Cells at the destination are overwritten.
+    # Formulas inside the moved range travel with their cells unchanged.
+    #
+    # The whole operation is validated up front: if the workbook contains
+    # array, shared, or data-table formulas, or table structured/external
+    # references (none of which are supported yet), the move is rejected
+    # before anything is modified.
+    def move_range(source, destination)
+      validate_workbook
+
+      src = source.is_a?(RubyXL::Reference) ? source : RubyXL::Reference.new(source)
+      dst = destination.is_a?(RubyXL::Reference) ? destination : RubyXL::Reference.new(destination)
+
+      [src, dst].each { |ref|
+        if ref.sheet_name && !ref.sheet_name.casecmp(sheet_name.to_s).zero? then
+          raise ArgumentError, "cannot move a range across worksheets: #{ref}"
+        end
+      }
+      raise ArgumentError, "invalid source range: #{source.inspect}" unless src.valid?
+      raise ArgumentError, "invalid destination: #{destination.inspect}" unless dst.valid?
+
+      row_shift = dst.first_row - src.first_row
+      col_shift = dst.first_col - src.first_col
+
+      unless dst.single_cell?
+        same_height = (dst.last_row - dst.first_row) == (src.last_row - src.first_row)
+        same_width  = (dst.last_col - dst.first_col) == (src.last_col - src.first_col)
+        unless same_height && same_width
+          raise ArgumentError, 'destination must be a single cell or a range of the same dimensions as source'
+        end
+      end
+
+      if src.first_row + row_shift < 0 || src.first_col + col_shift < 0 ||
+           src.last_row + row_shift >= RubyXL::FormulaShifter::MAX_ROW ||
+           src.last_col + col_shift >= RubyXL::FormulaShifter::MAX_COL then
+        raise ArgumentError, 'destination is out of worksheet bounds'
+      end
+
+      shifter = RubyXL::FormulaShifter.new(sheet_name, src, row_shift, col_shift)
+
+      # Preflight check: refuse to touch anything we cannot rewrite safely.
+      workbook.worksheets.each { |ws|
+        next unless ws.respond_to?(:sheet_data) && ws.sheet_data
+        ws.sheet_data.rows.each { |row|
+          next if row.nil?
+          row.cells.each { |cell|
+            next if cell.nil? || cell.formula.nil?
+            unless cell.formula.t.nil? || cell.formula.t == 'normal'
+              raise "cannot move a range in a workbook containing #{cell.formula.t} formulas (not supported)"
+            end
+            if RubyXL::FormulaShifter.unsupported_expression?(cell.formula.expression) then
+              raise 'cannot move a range in a workbook containing structured or external references (not supported)'
+            end
+          }
+        }
+      }
+      (workbook.defined_names || []).each { |defined_name|
+        if RubyXL::FormulaShifter.unsupported_expression?(defined_name.reference) then
+          raise 'cannot move a range in a workbook containing structured or external references (not supported)'
+        end
+      }
+
+      # Retarget formulas everywhere except inside the moved range itself:
+      # formulas that travel with their cells keep their original text.
+      workbook.worksheets.each { |ws|
+        next unless ws.respond_to?(:sheet_data) && ws.sheet_data
+        ws.sheet_data.rows.each { |row|
+          next if row.nil?
+          row.cells.each { |cell|
+            next if cell.nil? || cell.formula.nil? || cell.formula.expression.nil?
+            next if ws.equal?(self) && cell.r && src.cover?(cell.r)
+            cell.formula.expression = shifter.shift(cell.formula.expression, ws.sheet_name)
+          }
+        }
+      }
+
+      (workbook.defined_names || []).each { |defined_name|
+        local_sheet = defined_name.local_sheet_id && workbook.worksheets[defined_name.local_sheet_id.to_i]
+        defined_name.reference = shifter.shift(defined_name.reference, local_sheet && local_sheet.sheet_name)
+      }
+
+      # Physically move the cells. Extract everything first so that moves
+      # overlapping their own destination do not clobber cells in transit.
+      moved = []
+      (src.first_row..src.last_row).each { |row_index|
+        row = sheet_data.rows[row_index]
+        (src.first_col..src.last_col).each { |col_index|
+          moved << (row && row.cells[col_index])
+          row.cells[col_index] = nil if row
+        }
+      }
+
+      (src.first_row..src.last_row).each { |row_index|
+        row = sheet_data.rows[row_index + row_shift]
+        next if row.nil?
+        (src.first_col..src.last_col).each { |col_index| row.cells[col_index + col_shift] = nil }
+      }
+
+      index = 0
+      (src.first_row..src.last_row).each { |row_index|
+        (src.first_col..src.last_col).each { |col_index|
+          cell = moved[index]
+          index += 1
+          next if cell.nil?
+          target_row = row_index + row_shift
+          target_col = col_index + col_shift
+          ensure_cell_exists(target_row, target_col)
+          cell.r = RubyXL::Reference.new(target_row, target_col)
+          sheet_data.rows[target_row].cells[target_col] = cell
+        }
+      }
+
+      self
     end
 
     def get_row_style(row_index)
