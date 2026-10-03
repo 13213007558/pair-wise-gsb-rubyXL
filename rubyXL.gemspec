@@ -34,6 +34,7 @@ Gem::Specification.new do |s|
     "lib/rubyXL/convenience_methods/cell.rb",
     "lib/rubyXL/convenience_methods/color.rb",
     "lib/rubyXL/convenience_methods/font.rb",
+    "lib/rubyXL/convenience_methods/style_compressor.rb",
     "lib/rubyXL/convenience_methods/workbook.rb",
     "lib/rubyXL/convenience_methods/worksheet.rb",
     "lib/rubyXL/objects/border.rb",
@@ -502,4 +503,3 @@ Gem::Specification.new do |s|
   s.add_development_dependency(%q<rspec_junit_formatter>.freeze, [">= 0".freeze])
   s.add_development_dependency(%q<rubocop>.freeze, [">= 0".freeze])
 end
-

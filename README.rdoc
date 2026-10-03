@@ -237,6 +237,24 @@ WARNING: Use of this method WILL break formulas referencing cells which have bee
   cell.add_hyperlink('http://example.com', 'Some tooltip text')
 
 
+==== Compressing Styles
+
+After concatenating reports it is common to end up with thousands of
+equivalent styles that differ only in XML spelling. +compress_styles+ merges
+them by their actual visual semantics and rewrites every cell, row/column
+default and other supported reference:
+
+  result = workbook.compress_styles
+  result[:mappings] # { :cell_xfs => { 5 => 1, ... }, :fonts => {...}, ... }
+  result[:stats]    # { :cell_xfs => { :before: 4123, :after: 18, :removed: 4105 }, ... }
+
+The default +:preserve_theme+ mode never merges a theme color with an RGB that
+currently looks the same but would render differently after a theme switch.
+Pass +:resolve_theme+ to resolve theme and legacy indexed colors to RGB first:
+
+  workbook.compress_styles(:resolve_theme)
+
+
 == I/O
 
 By default, the gem operates with files on the local filesystem:

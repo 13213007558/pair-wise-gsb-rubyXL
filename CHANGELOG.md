@@ -1,5 +1,9 @@
 # v3.4.25 (May 19, 2022)
 
+# Unreleased
+
+* Add `Workbook#compress_styles` for semantically merging equivalent stylesheet entries (numFmts, fonts, fills, borders, cellStyleXfs, cellXfs and dxfs), with xfId/apply-flag-aware inheritance and theme-safe color handling; returns old-ID => new-ID mappings and compression statistics
+
 * Improve code style and consistently (@weshatheleopard)
 * Update `Gemfile.lock`, dependency versions used when developing the gem (@weshatheleopard)
 

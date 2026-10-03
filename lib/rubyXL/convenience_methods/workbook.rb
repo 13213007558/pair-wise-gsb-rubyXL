@@ -1,3 +1,5 @@
+require 'rubyXL/convenience_methods/style_compressor'
+
 module RubyXL
   module WorkbookConvenienceMethods
     def each
@@ -47,6 +49,16 @@ module RubyXL
       new_xf_id ||= cell_xfs.size # If this XF has never existed before, add it to collection.
       cell_xfs[new_xf_id] = new_xf
       new_xf_id
+    end
+
+    # Merge stylesheet entries that are semantically equivalent and rewrite
+    # every reference to the renumbered entries. +mode+ is either
+    # +:preserve_theme+ (default; theme-dependent colors are never folded into
+    # fixed RGB colors) or +:resolve_theme+ (theme and legacy indexed colors
+    # are resolved to RGB before comparison). Returns a hash with the old-ID =>
+    # new-ID +:mappings+ and per-collection +:stats+.
+    def compress_styles(mode = RubyXL::StyleCompressor::PRESERVE_THEME)
+      RubyXL::StyleCompressor.compress(self, mode)
     end
 
     def modify_alignment(style_index, &block)
