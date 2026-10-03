@@ -1,5 +1,6 @@
 require 'rubyXL/objects/root'
 require 'rubyXL/parser'
+require 'rubyXL/conditional_formatting_evaluator'
 
 module RubyXL
   @@suppress_warnings = false

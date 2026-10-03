@@ -30,6 +30,23 @@ If you do not care about your RAM usage, just include them all at once by adding
 === Parsing an existing workbook
   workbook = RubyXL::Parser.parse("path/to/Excel/file.xlsx")
 
+=== Evaluating conditional formatting (read-only)
+  # Computes the effective conditional format of a cell without painting
+  # anything back into the workbook. The value provider is any object
+  # responding to value_at(row, col), call(row, col) or [](row, col).
+  provider = RubyXL::ConditionalFormattingEvaluator::WorksheetValueProvider.new(worksheet)
+  result = RubyXL::ConditionalFormattingEvaluator.new(worksheet, provider).evaluate('B5')
+  result.matched?       # whether any rule matched
+  result.matched_rules  # matching cfRule objects, in priority order
+  result.style          # merged differential style properties (font/fill/border/...)
+
+Supported rule types: cellIs, expression, duplicateValues/uniqueValues, top10
+and colorScale. Rules are applied by priority honoring stopIfTrue, and
+differential styles are merged property by property. Unsupported rule types
+and formulas outside the documented subset raise
+RubyXL::ConditionalFormattingEvaluator::UnsupportedRuleError instead of
+silently evaluating to false.
+
 === Creating a new Workbook
   workbook = RubyXL::Workbook.new
 
