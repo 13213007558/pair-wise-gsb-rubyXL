@@ -1,3 +1,5 @@
+require 'rubyXL/convenience_methods/conditional_formatting_evaluator'
+
 module RubyXL
   module WorksheetConvenienceMethods
     NAME = 0

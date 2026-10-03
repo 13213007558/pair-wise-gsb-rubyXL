@@ -261,6 +261,24 @@ It can also operate on +StringIO+ objects, thus eliminating the need to save the
 
   worksheet.add_validation_list("A1", [ "value1", "value2" ])
 
+== Conditional formatting evaluation
+
+Use +evaluate_conditional_formatting+ to calculate the differential style a cell displays before exporting a sheet to an image. The evaluation is read-only and does not change cell styles or register styles in the workbook:
+
+  result = worksheet.evaluate_conditional_formatting(0, 0)
+  result.style # Merged RubyXL::DXF differential style, or nil
+  result.rules # RubyXL::ConditionalFormattingRule objects that participated in the hit
+
+A custom read-only value provider may be passed as a callable accepting zero-based row and column, or as a block:
+
+  result = worksheet.evaluate_conditional_formatting('B2') { |row, column| read_displayed_value(row, column) }
+
+Supported conditional formatting rule types are: +cellIs+, +expression+, +duplicateValues+, +uniqueValues+, +top10+, and +colorScale+. Rules are evaluated by ascending +priority+, and a hit rule with +stopIfTrue+ prevents later non-visual rules from running. Differential styles are merged by attribute, so rules that set different properties combine until evaluation stops.
+
+Relative references in formulas are translated from the virtual active cell at the top-left of each sqref segment. Absolute references remain anchored, and every segment in a multi-segment sqref is evaluated independently.
+
+The supported formula subset includes numeric, string, and Boolean literals; relative, absolute, and A1 cell/range references; comparison and arithmetic operators; and the functions +AND+, +OR+, +NOT+, +IF+, +IFERROR+, +ISBLANK+, +ISERROR+, +ISNUMBER+, +ISTEXT+, +ISLOGICAL+, +NA+, +SUM+, +AVERAGE+, +COUNT+, +COUNTA+, +COUNTBLANK+, +MIN+, +MAX+, +LARGE+, +SMALL+, +MEDIAN+, +PERCENTILE+, +ABS+, +INT+, +TRUNC+, +ROUND+, +FLOOR+, +CEILING+, +SQRT+, +MOD+, +POWER+, +LN+, +LOG+, +EXP+, +LEN+, +LEFT+, +RIGHT+, +MID+, +UPPER+, +LOWER+, +CONCAT+, +CONCATENATE+, +DATE+, +YEAR+, +MONTH+, and +DAY+. Named ranges, sheet-qualified references, unsupported rule types, unsupported functions, and formulas that cannot be evaluated raise +RubyXL::ConditionalFormattingError+; they are never silently treated as +false+.
+
 == For more information
 Take a look at the files in spec/lib/ for rspecs on most methods
 
