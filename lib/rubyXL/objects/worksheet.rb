@@ -619,7 +619,7 @@ module RubyXL
     include RubyXL::RelationshipSupport
 
     def related_objects
-      comments + printer_settings
+      [comments, printer_settings].flatten.compact
     end
 
     define_relationship(RubyXL::PrinterSettingsFile,  :printer_settings)
@@ -730,7 +730,12 @@ module RubyXL
     end
 
     def xlsx_path
-      ROOT.join('xl', 'worksheets', "sheet#{file_index}.xml")
+      index = if root&.rels_hash then
+                file_index
+              else
+                (workbook&.worksheets&.index(self) || 0) + 1
+              end
+      ROOT.join('xl', 'worksheets', "sheet#{index}.xml")
     end
 
     def self.parse(param)

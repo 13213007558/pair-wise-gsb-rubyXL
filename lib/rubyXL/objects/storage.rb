@@ -66,6 +66,20 @@ module RubyXL
   class BinaryImageFile < GenericStorageObject
     CONTENT_TYPE = 'image/jpeg'.freeze
     REL_TYPE     = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image'.freeze
+
+    IMAGE_CONTENT_TYPES = {
+      '.jpg'  => 'image/jpeg',
+      '.jpeg' => 'image/jpeg',
+      '.png'  => 'image/png',
+      '.gif'  => 'image/gif',
+      '.bmp'  => 'image/bmp',
+      '.tiff' => 'image/tiff',
+      '.svg'  => 'image/svg+xml'
+    }.freeze
+
+    def content_type
+      IMAGE_CONTENT_TYPES.fetch(xlsx_path.extname.downcase, CONTENT_TYPE)
+    end
   end
 
   class VMLDrawingFile < GenericStorageObject

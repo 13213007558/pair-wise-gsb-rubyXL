@@ -398,12 +398,21 @@ module RubyXL
     end
 
     # Return the resulting XLSX file in a stream (useful for sending over HTTP)
-    def stream
+    def stream(options = nil)
+      drop_missing_extensions! if options.is_a?(Hash) && options[:drop_missing_extensions]
       root.stream
     end
 
+    # Removes preserved extension markup that references missing relationship targets.
+    def drop_missing_extensions!
+      root.collect_related_objects.each do |object|
+        next unless object.respond_to?(:relationship_container) && object.relationship_container
+        object.relationship_container.drop_missing_extensions!
+      end
+    end
+
     # Save the resulting XLSX file to the specified location
-    def save(dst_file_path = nil)
+    def save(dst_file_path = nil, options = nil)
       dst_file_path ||= root.source_file_path
 
       extension = File.extname(dst_file_path)
@@ -411,7 +420,8 @@ module RubyXL
         raise "Unsupported extension: #{extension} (only .xlsx, .xlsm, .xltx and .xltm files are supported)."
       end
 
-      File.open(dst_file_path, 'wb') { |output_file| FileUtils.copy_stream(root.stream, output_file) }
+      output_stream = stream(options)
+      File.open(dst_file_path, 'wb') { |output_file| FileUtils.copy_stream(output_stream, output_file) }
 
       return dst_file_path
     end

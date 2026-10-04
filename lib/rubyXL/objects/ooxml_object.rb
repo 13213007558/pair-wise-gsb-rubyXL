@@ -128,6 +128,7 @@ module RubyXL
       hsh = {}
       node.namespace_definitions.each { |ns| hsh[ns.href] = ns.prefix }
       obj.local_namespaces = hsh
+      obj.preserve_extensions = preserve_extensions?
 
       known_attributes = obtain_class_variable(:@@ooxml_attributes)
 
@@ -135,56 +136,85 @@ module RubyXL
       process_attribute(obj, node.text, content_params) if content_params
 
       node.attributes.each_pair { |attr_name, attr|
-        attr_name = if attr.namespace then "#{attr.namespace.prefix}:#{attr.name}"
-                    else attr.name
-                    end
+        attr_name = ooxml_attribute_name(attr)
 
         attr_params = known_attributes[attr_name]
 
-        next if attr_params.nil?
+        if attr_params.nil? then
+          if obj.preserve_extensions then
+            namespace = attr.namespace
+            obj.preserved_attributes[attr_name] = {
+              :name      => attr.name,
+              :namespace => namespace && namespace.href,
+              :prefix    => namespace && namespace.prefix,
+              :value     => attr.value
+            }
+          end
+          next
+        end
         # raise "Unknown attribute [#{attr_name}] for element [#{node.name}]" if attr_params.nil?
         process_attribute(obj, attr.value, attr_params) unless attr_params[:computed]
       }
 
       known_child_nodes = obtain_class_variable(:@@ooxml_child_nodes)
+      known_namespaces ||= obtain_class_variable(:@@ooxml_namespaces)
 
-      unless known_child_nodes.empty?
-        known_namespaces ||= obtain_class_variable(:@@ooxml_namespaces)
+      node.element_children.each { |child_node|
+        child_node_name = ooxml_child_node_name(child_node, known_namespaces)
+        child_node_params = known_child_nodes[child_node_name]
 
-        node.element_children.each { |child_node|
-          ns = child_node.namespace
+        if child_node_params.nil? then
+          raise "Unknown child node [#{child_node_name}] for element [#{node.name}]" unless obj.preserve_extensions
+          obj.preserved_child_order << ['raw', child_node_name, child_node.canonicalize]
+          next
+        end
 
-          prefix = if known_namespaces.has_key?(ns&.href) then known_namespaces[ns&.href]
-                   else ns&.prefix
-                   end
+        parsed_object = child_node_params[:class].parse(child_node, known_namespaces)
+        if child_node_params[:is_array] then
+          index = parsed_object.index_in_collection
 
-          child_node_name = case prefix
-                            when '', nil then child_node.name
-                            else "#{prefix}:#{child_node.name}"
-                            end
+          collection = if (self < RubyXL::OOXMLContainerObject) then obj
+                       else obj.send(child_node_params[:accessor])
+                       end
 
-          child_node_params = known_child_nodes[child_node_name]
-          raise "Unknown child node [#{child_node_name}] for element [#{node.name}]" if child_node_params.nil?
-          parsed_object = child_node_params[:class].parse(child_node, known_namespaces)
-          if child_node_params[:is_array] then
-            index = parsed_object.index_in_collection
-
-            collection = if (self < RubyXL::OOXMLContainerObject) then obj
-                         else obj.send(child_node_params[:accessor])
-                         end
-
-            if index.nil? then
-              collection << parsed_object
-            else
-              collection[index] = parsed_object
-            end
+          if index.nil? then
+            collection << parsed_object
+            stored_index = collection.size - 1
           else
-            obj.send("#{child_node_params[:accessor]}=", parsed_object)
+            collection[index] = parsed_object
+            stored_index = index
           end
-        }
-      end
+          obj.preserved_child_order << ['node', child_node_params[:accessor], stored_index] if obj.preserve_extensions
+        else
+          obj.send("#{child_node_params[:accessor]}=", parsed_object)
+          obj.preserved_child_order << ['node', child_node_params[:accessor], nil] if obj.preserve_extensions
+        end
+      }
 
       obj
+    end
+
+    def preserve_extensions?
+      !!(defined?(RubyXL) && RubyXL.respond_to?(:preserve_extensions) && RubyXL.preserve_extensions)
+    end
+
+    def ooxml_attribute_name(attr)
+      return attr.name if attr.namespace.nil?
+      namespaces = obtain_class_variable(:@@ooxml_namespaces, nil) || {}
+      prefix = namespaces[attr.namespace.href] || attr.namespace.prefix
+      prefix && !prefix.empty? ? "#{prefix}:#{attr.name}" : attr.name
+    end
+
+    def ooxml_child_node_name(node, known_namespaces)
+      ns = node.namespace
+      prefix = if known_namespaces.has_key?(ns&.href) then known_namespaces[ns&.href]
+               else ns&.prefix
+               end
+
+      case prefix
+      when '', nil then node.name
+      else "#{prefix}:#{node.name}"
+      end
     end
 
     private
@@ -218,6 +248,7 @@ module RubyXL
 
   module OOXMLObjectInstanceMethods
     attr_accessor :local_namespaces
+    attr_accessor :preserve_extensions
 
     def self.included(klass)
       klass.extend RubyXL::OOXMLObjectClassMethods
@@ -230,6 +261,9 @@ module RubyXL
 
     def initialize(params = nil)
       @local_namespaces = nil
+      @preserve_extensions = self.class.send(:preserve_extensions?)
+      @preserved_attributes = {}
+      @preserved_child_order = []
       params ||= {}
 
       obtain_class_variable(:@@ooxml_attributes).each_value { |v|
@@ -251,6 +285,14 @@ module RubyXL
       }
     end
     private :init_child_nodes
+
+    def preserved_attributes
+      @preserved_attributes ||= {}
+    end
+
+    def preserved_child_order
+      @preserved_child_order ||= []
+    end
 
     def preserve_whitespace
       self.xml_space = (value.is_a?(String) && ((value =~ /\A\s/) || (value =~ /\s\Z/) || value.include?("\n"))) ? 'preserve' : nil
@@ -323,23 +365,99 @@ module RubyXL
       # Then, add defaults. Note that if some namespace prefix was already set, Nokogiri will NOT change that namespace.
       obtain_class_variable(:@@ooxml_namespaces).each_pair { |href, prefix| elem.add_namespace_definition(prefix, href) }
 
-      child_nodes = obtain_class_variable(:@@ooxml_child_nodes)
-      child_nodes.each_pair { |child_node_name, child_node_params|
-        node_obj = get_node_object(child_node_params)
-        next if node_obj.nil?
-
-        if node_obj.respond_to?(:write_xml) && !node_obj.equal?(self) then
-          # If child node is either +OOXMLObject+, or +OOXMLContainerObject+ on its first (envelope) pass,
-          # serialize that object.
-          elem << node_obj.write_xml(xml, child_node_name)
-        else
-          # If child node is either vanilla +Array+, or +OOXMLContainerObject+ on its seconds (content) pass,
-          # serialize its members.
-          node_obj.each { |item| elem << item.write_xml(xml, child_node_name) unless item.nil? }
+      preserved_attributes.each_value { |attribute_params|
+        attribute_name = attribute_params[:name]
+        namespace_href = attribute_params[:namespace]
+        if namespace_href then
+          prefix = namespace_prefix(elem, namespace_href) || attribute_params[:prefix]
+          attribute_name = "#{prefix}:#{attribute_name}" if prefix && !prefix.empty?
         end
+        elem[attribute_name] = attribute_params[:value]
       }
+
+      child_nodes = obtain_class_variable(:@@ooxml_child_nodes)
+      written_nodes = Hash.new { |hash, key| hash[key] = [] }
+      write_unpreserved_children(xml, elem, child_nodes, written_nodes)
       elem
     end
+
+    def write_unpreserved_children(xml, elem, child_nodes, written_nodes)
+      slot_index = 0
+
+      child_nodes.each_pair { |child_node_name, child_node_params|
+        slot_index = write_children_until(xml, elem, child_node_params[:accessor], child_nodes, written_nodes, slot_index)
+        write_unpreserved_child(xml, elem, child_node_name, child_node_params, written_nodes)
+      }
+
+      while slot_index < preserved_child_order.size
+        _kind, _accessor, raw_xml = preserved_child_order[slot_index]
+        elem << xml.fragment(raw_xml)
+        slot_index += 1
+      end
+    end
+    private :write_unpreserved_children
+
+    def write_children_until(xml, elem, current_accessor, child_nodes, written_nodes, slot_index)
+      while slot_index < preserved_child_order.size
+        kind, accessor, index = preserved_child_order[slot_index]
+        break unless kind == 'raw' || accessor == current_accessor
+
+        if kind == 'raw' then
+          elem << xml.fragment(index)
+        else
+          child_node_name, child_node_params = child_nodes.find { |_name, params| params[:accessor] == accessor }
+          write_modeled_child(xml, elem, child_node_name, child_node_params, index, written_nodes)
+        end
+        slot_index += 1
+      end
+      slot_index
+    end
+    private :write_children_until
+
+    def write_unpreserved_child(xml, elem, child_node_name, child_node_params, written_nodes)
+      if child_node_params[:is_array] then
+        collection = get_node_object(child_node_params)
+        return unless collection
+        collection.each_with_index { |item, index|
+          next if written_nodes[child_node_params[:accessor]].include?(index)
+          append_modeled_child(xml, elem, child_node_name, item)
+        }
+      else
+        return if written_nodes[child_node_params[:accessor]].include?(0)
+        append_modeled_child(xml, elem, child_node_name, get_node_object(child_node_params))
+      end
+    end
+    private :write_unpreserved_child
+
+    def write_modeled_child(xml, elem, child_node_name, child_node_params, index, written_nodes)
+      if child_node_params[:is_array] then
+        collection = get_node_object(child_node_params)
+        item = collection&.at(index)
+        written_nodes[child_node_params[:accessor]] << index
+      else
+        item = get_node_object(child_node_params)
+        written_nodes[child_node_params[:accessor]] << 0
+      end
+      append_modeled_child(xml, elem, child_node_name, item)
+    end
+    private :write_modeled_child
+
+    def append_modeled_child(xml, elem, child_node_name, item)
+      return if item.nil?
+      if item.respond_to?(:write_xml) && !item.equal?(self) then
+        elem << item.write_xml(xml, child_node_name)
+      else
+        item.each { |child| elem << child.write_xml(xml, child_node_name) unless child.nil? }
+      end
+    end
+    private :append_modeled_child
+
+    def namespace_prefix(elem, href)
+      namespace = elem.namespace_definitions.find { |definition| definition.href == href }
+      return namespace.prefix if namespace
+      nil
+    end
+    private :namespace_prefix
 
     # Prototype method. For sparse collections (+Rows+, +Cells+, etc.) must return index at which this object
     # is expected to reside in the collection. If +nil+ is returned, then object is simply added

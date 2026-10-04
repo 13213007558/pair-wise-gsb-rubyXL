@@ -33,11 +33,11 @@ module RubyXL
       # Collect all extensions and corresponding content types
       root.rels_hash.each_pair { |klass, objects|
         objects.each { |obj|
-          next unless klass.const_defined?(:CONTENT_TYPE)
+          next unless obj.respond_to?(:content_type) || klass.const_defined?(:CONTENT_TYPE)
           ext = obj.xlsx_path.extname[1..-1]
           next if ext.nil?
           content_types_by_ext[ext] ||= []
-          content_types_by_ext[ext] << klass::CONTENT_TYPE
+          content_types_by_ext[ext] << (obj.respond_to?(:content_type) ? obj.content_type : klass::CONTENT_TYPE)
         }
       }
 

@@ -30,6 +30,18 @@ If you do not care about your RAM usage, just include them all at once by adding
 === Parsing an existing workbook
   workbook = RubyXL::Parser.parse("path/to/Excel/file.xlsx")
 
+Workbooks from other applications may contain extension elements in namespaces this version does not model. To make a small edit while retaining those elements, their namespace URIs, node order, and relationship references, opt in to extension preservation:
+  workbook = RubyXL::Parser.parse("path/to/Excel/file.xlsx", :preserve_extensions => true)
+  workbook[0][0][0].change_contents("new value")
+  workbook.save("edited.xlsx")
+
+If a preserved extension references a relationship target that was removed during editing, saving raises +RubyXL::ExtensionDependencyError+ before writing the file. The error identifies the source part, relationship ID, target, and extension. Either restore the target/object or drop only the dependent extension blocks:
+  workbook.save("edited.xlsx", :drop_missing_extensions => true)
+
+The same cleanup is available before saving through +workbook.drop_missing_extensions!+.
+
+Markup Compatibility: +mc:Ignorable+ is used for independently ignorable extension namespaces and is retained verbatim. +mc:AlternateContent+ is retained as one complete block when it supplies both +Choice+ and +Fallback+ for consumers with different capabilities. RubyXL does not synthesize or merge those branches, so an edit cannot produce contradictory +Choice+ and +Fallback+ markup.
+
 === Creating a new Workbook
   workbook = RubyXL::Workbook.new
 

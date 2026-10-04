@@ -27,7 +27,7 @@ module RubyXL
     @@debug_indent = ($DEBUG ? 0 : nil)
 
     def new_relationship(target, type)
-      RubyXL::Relationship.new(:id     => "rId#{relationships.size + 1}",
+      RubyXL::Relationship.new(:id     => next_relationship_id,
                                :type   => type,
                                :target => target)
     end
@@ -36,11 +36,17 @@ module RubyXL
     def add_relationship(obj)
       return if obj.nil? || !defined?(obj.class::REL_TYPE) || (obj.respond_to?(:empty?) && obj.empty?)
 
-      relationships << RubyXL::Relationship.new(:id     => "rId#{relationships.size + 1}",
+      relationships << RubyXL::Relationship.new(:id     => next_relationship_id,
                                                 :type   => obj.class::REL_TYPE,
                                                 :target => obj.xlsx_path.relative_path_from(owner.xlsx_path.dirname))
     end
     protected :add_relationship
+
+    def next_relationship_id
+      max_id = relationships.map { |relationship| relationship.id.to_s[/\d+\z/].to_i }.max || 0
+      "rId#{max_id + 1}"
+    end
+    private :next_relationship_id
 
     def find_by_rid(r_id)
       relationships.find { |r| r.id == r_id }
@@ -48,7 +54,8 @@ module RubyXL
 
     def find_by_target(target)
       relationships.find { |r|
-        (r.target == target) || (r.target == target.relative_path_from(owner.xlsx_path.dirname))
+        (r.target.to_s == target.to_s) ||
+          (r.target.to_s == target.relative_path_from(owner.xlsx_path.dirname).to_s)
       }
     end
 
@@ -69,6 +76,7 @@ module RubyXL
 
     def load_related_files(zipdir_path, base_file_name)
       self.related_files = {}
+      preserving = owner&.preserve_extensions || preserve_extensions?
 
       @@debug_indent += 2 if @@debug_indent
 
@@ -91,6 +99,7 @@ module RubyXL
         puts "--> DEBUG:#{'  ' * @@debug_indent}Loading #{klass} (#{rel.id}): #{file_path}" if @@debug_indent
 
         obj = klass.parse_file(zipdir_path, file_path)
+        obj.preserve_extensions = preserving if obj.respond_to?(:preserve_extensions=)
         obj.load_relationships(zipdir_path, file_path) if obj.respond_to?(:load_relationships)
         self.related_files[rel.id] = obj
       }
@@ -105,16 +114,33 @@ module RubyXL
 
       puts "--> DEBUG:  #{'  ' * @@debug_indent}Loading .rel file: #{rel_file_path}" if @@debug_indent
 
-      parse_file(zipdir_path, rel_file_path)
+      relationship_file = parse_file(zipdir_path, rel_file_path)
+      relationship_file.preserve_extensions = preserve_extensions? if relationship_file
+      relationship_file
     end
 
     def xlsx_path
       self.class.rel_file_path(owner.xlsx_path)
     end
 
+    def preserve_extensions?
+      !!RubyXL.preserve_extensions
+    end
+
     def before_write_xml
-      case owner
-      when RubyXL::WorkbookRoot, RubyXL::Workbook then
+      if owner&.preserve_extensions then
+        related_objects = owner.respond_to?(:related_objects) ? owner.related_objects : []
+        related_objects += owner.generic_storage if owner.generic_storage
+        existing_targets = relationships.map { |relationship| resolved_relationship_target(relationship).to_s }
+        related_objects.compact.each { |object|
+          next unless object.respond_to?(:xlsx_path)
+          target = resolved_relationship_target_for_object(object).to_s
+          unless existing_targets.include?(target)
+            add_relationship(object)
+            existing_targets << target
+          end
+        }
+      elsif owner.is_a?(RubyXL::WorkbookRoot) || owner.is_a?(RubyXL::Workbook)
         # Fully implemented objects with no generic (unhandled) relationships -
         #   (re)generating relationships from scratch.
         related_objects = owner.related_objects
@@ -123,7 +149,74 @@ module RubyXL
         self.relationships = []
         related_objects.compact.each { |f| add_relationship(f) }
       end
+      reconcile_preserved_relationships!
+      missing_dependencies = extension_dependencies
+      raise RubyXL::ExtensionDependencyError.new(missing_dependencies) unless missing_dependencies.empty?
       super
+    end
+
+    def reconcile_preserved_relationships!
+      return unless owner&.preserve_extensions
+
+      available_targets = available_relationship_targets
+      self.relationships ||= []
+      relationships.select! { |relationship|
+        relationship.target_mode == 'External' || available_targets.include?(resolved_relationship_target(relationship))
+      }
+    end
+
+    def extension_dependencies
+      return [] unless owner
+
+      valid_ids = relationships.select { |relationship|
+        relationship.target_mode == 'External' || available_relationship_targets.include?(resolved_relationship_target(relationship))
+      }.map(&:id)
+
+      referenced_ids = owner.extension_relationship_ids
+      referenced_ids.reject { |id| valid_ids.include?(id) }.map { |id|
+        relationship = relationships.find { |rel| rel.id == id }
+        {
+          :part       => part_label,
+          :id         => id,
+          :target     => relationship&.target || '<relationship removed>',
+          :extension  => 'preserved extension XML'
+        }
+      }
+    end
+
+    def drop_missing_extensions!
+      reconcile_preserved_relationships!
+      missing = extension_dependencies.map { |dependency| dependency[:id] }
+      owner.remove_extension_relationship_ids!(missing) unless missing.empty?
+      reconcile_preserved_relationships!
+      missing
+    end
+
+    def available_relationship_targets
+      objects = root_related_objects
+      objects.select { |object|
+        object.respond_to?(:xlsx_path) && !object.is_a?(RubyXL::OOXMLRelationshipsFile)
+      }.map { |object| RubyXL.from_root(object.xlsx_path) }
+    end
+
+    def root_related_objects
+      root_object = owner.respond_to?(:root) ? owner.root : owner
+      root_object ? root_object.collect_related_objects : []
+    end
+
+    def resolved_relationship_target(relationship)
+      target = ::Pathname.new(relationship.target.to_s)
+      base_path = owner.is_a?(RubyXL::OOXMLRelationshipsFile) ? owner.xlsx_path.dirname.parent : owner.xlsx_path.dirname
+      target = base_path + target if target.relative?
+      RubyXL.from_root(target.cleanpath)
+    end
+
+    def resolved_relationship_target_for_object(object)
+      RubyXL.from_root(object.xlsx_path)
+    end
+
+    def part_label
+      owner.respond_to?(:xlsx_path) ? RubyXL.from_root(owner.xlsx_path).to_s : owner.class.name
     end
 
     def self.rel_file_path(base_file_path)
@@ -146,10 +239,14 @@ module RubyXL
       klass.extend RubyXL::RelationshipSupport::ClassMehods
     end
 
-    attr_accessor :generic_storage, :relationship_container
+    attr_accessor :generic_storage, :relationship_container, :preserve_extensions
 
     def related_objects # Override this method
       []
+    end
+
+    def preserve_extensions?
+      !!RubyXL.preserve_extensions
     end
 
     def collect_related_objects
@@ -173,8 +270,11 @@ module RubyXL
     end
 
     def load_relationships(dir_path, base_file_name)
+      self.preserve_extensions = preserve_extensions? if respond_to?(:preserve_extensions=) && preserve_extensions.nil?
       self.relationship_container = RubyXL::OOXMLRelationshipsFile.load_relationship_file(dir_path, base_file_name)
       return if relationship_container.nil?
+      relationship_container.owner = self
+      relationship_container.preserve_extensions = preserve_extensions if relationship_container.respond_to?(:preserve_extensions=)
 
       relationship_container.load_related_files(dir_path, base_file_name).each_pair { |rid, related_file|
         attach_relationship(rid, related_file) if related_file
@@ -208,6 +308,89 @@ module RubyXL
         puts "WARNING: #{self.class} is not aware how to process #{related_file.class}"
       end
       self.generic_storage << related_file
+    end
+
+    def extension_relationship_ids
+      ids = []
+      collect_extension_relationship_ids(self, ids)
+      ids.uniq
+    end
+
+    def remove_extension_relationship_ids!(ids)
+      remove_extension_relationship_ids_from_object(self, ids)
+    end
+
+    private
+
+    def collect_extension_relationship_ids(object, ids)
+      case object
+      when RubyXL::RawOOXML then ids.concat(object.extension_relationship_ids)
+      when RubyXL::OOXMLObject, RubyXL::OOXMLContainerObject
+        object.preserved_attributes.each_value { |attribute|
+          if attribute[:namespace] == RubyXL::RELATIONSHIPS_NS && attribute[:name] == 'id' then
+            ids << attribute[:value]
+          end
+        }
+        object.preserved_child_order.each { |kind, name, raw_or_index|
+          ids.concat(RubyXL::RawOOXML.relationship_ids(raw_or_index)) if kind == 'raw'
+        }
+        object.class.obtain_class_variable(:@@ooxml_child_nodes).each_value { |params|
+          child = object.send(params[:accessor]) rescue nil
+          if object.is_a?(RubyXL::OOXMLContainerObject) && params[:is_array] then
+            object.each { |item| collect_extension_relationship_ids(item, ids) }
+          else
+            Array(child).compact.each { |item| collect_extension_relationship_ids(item, ids) }
+          end
+        }
+      end
+    end
+
+    def remove_extension_relationship_ids_from_object(object, ids)
+      return unless object.is_a?(RubyXL::OOXMLObject) || object.is_a?(RubyXL::OOXMLContainerObject)
+
+      object.preserved_attributes.delete_if { |_name, attribute|
+        attribute[:namespace] == RubyXL::RELATIONSHIPS_NS && attribute[:name] == 'id' && ids.include?(attribute[:value])
+      }
+
+      object.preserved_child_order.reject! { |slot|
+        slot[0] == 'raw' && !(RubyXL::RawOOXML.relationship_ids(slot[2]) & ids).empty?
+      }
+
+      object.class.obtain_class_variable(:@@ooxml_child_nodes).each_value { |params|
+        child = object.send(params[:accessor]) rescue nil
+        next if child.nil?
+
+        if child.is_a?(RubyXL::RawOOXML)
+          child.remove_extension_relationship_ids!(ids)
+          object.send("#{params[:accessor]}=", nil) if child.raw_xml.to_s.empty?
+        elsif child.is_a?(Array)
+          if object.is_a?(RubyXL::OOXMLContainerObject) && params[:is_array] then
+            object.each { |item| remove_raw_item_if_needed(item, ids) }
+            object.reject! { |item| item.is_a?(RubyXL::RawOOXML) && item.raw_xml.to_s.empty? }
+          else
+            child.each { |item| remove_raw_item_if_needed(item, ids) }
+          end
+          child.reject! { |item| item.is_a?(RubyXL::RawOOXML) && item.raw_xml.to_s.empty? }
+          object.send("#{params[:accessor]}=", nil) if child.empty?
+        elsif child.is_a?(RubyXL::OOXMLObject) || child.is_a?(RubyXL::OOXMLContainerObject)
+          remove_extension_relationship_ids_from_object(child, ids)
+          object.send("#{params[:accessor]}=", nil) if child_raw_extension_empty?(child, params)
+          if !params[:is_array] && child.respond_to?(:extensions) && child.extensions&.empty? then
+            object.send("#{params[:accessor]}=", nil)
+          end
+        end
+      }
+    end
+
+    def child_raw_extension_empty?(child, params)
+      child.respond_to?(:empty?) && child.empty?
+    end
+
+    def remove_raw_item_if_needed(item, ids)
+      case item
+      when RubyXL::RawOOXML then item.remove_extension_relationship_ids!(ids)
+      when RubyXL::OOXMLObject, RubyXL::OOXMLContainerObject then remove_extension_relationship_ids_from_object(item, ids)
+      end
     end
   end
 end
