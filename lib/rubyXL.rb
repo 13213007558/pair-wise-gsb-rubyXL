@@ -1,5 +1,6 @@
 require 'rubyXL/objects/root'
 require 'rubyXL/parser'
+require 'rubyXL/number_format_renderer'
 
 module RubyXL
   @@suppress_warnings = false

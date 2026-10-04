@@ -1,0 +1,244 @@
+# Offline-verifiable number format samples for RubyXL::NumberFormatRenderer.
+# Each sample is rendered with the stated locale (default en-US) and date
+# system (default excel_1900) and must produce expect_text exactly.
+#
+# Notable cases required by the feature spec:
+#   * negative zero            -> samples "negative zero ..."
+#   * midpoint rounding        -> samples "midpoint rounding ..."
+#   * elapsed time over 24h    -> samples "elapsed hours ..."
+#   * fixed-denominator fraction -> samples "fixed denominator ..."
+samples:
+  # --- the 0.125 question: percent, rounded decimal, or a time ---
+  - name: percent turns 0.125 into 12.5%
+    value: 0.125
+    format: '0.0%'
+    expect_text: '12.5%'
+  - name: midpoint rounding 0.125 with two decimals gives 0.13
+    value: 0.125
+    format: '0.00'
+    expect_text: '0.13'
+  - name: 0.125 of a day is 03:00
+    value: 0.125
+    format: 'h:mm'
+    expect_text: '3:00'
+
+  # --- midpoint rounding (half away from zero, exact decimal math) ---
+  - name: midpoint rounding 2.5 to integer
+    value: 2.5
+    format: '0'
+    expect_text: '3'
+  - name: midpoint rounding -2.5 to integer
+    value: -2.5
+    format: '0'
+    expect_text: '-3'
+  - name: midpoint rounding 0.995 to two decimals
+    value: 0.995
+    format: '0.00'
+    expect_text: '1.00'
+  - name: rounding carries into the integer part
+    value: 9.99
+    format: '0.0'
+    expect_text: '10.0'
+
+  # --- negative zero ---
+  - name: negative zero from rounding keeps its sign
+    value: -0.04
+    format: '0.0'
+    expect_text: '-0.0'
+  - name: negative zero literal value keeps its sign
+    value: -0.0
+    format: '0.0'
+    expect_text: '-0.0'
+  - name: negative zero uses the negative section
+    value: -0.0
+    format: '0.0;(0.0)'
+    expect_text: '(0.0)'
+
+  # --- elapsed time beyond 24 hours ---
+  - name: elapsed hours over 24
+    value: 1.5
+    format: '[h]:mm'
+    expect_text: '36:00'
+  - name: elapsed hours with seconds
+    value: 3.25
+    format: '[h]:mm:ss'
+    expect_text: '78:00:00'
+  - name: elapsed minutes
+    value: 1.5
+    format: '[m]'
+    expect_text: '2160'
+  - name: plain clock time wraps at 24 hours
+    value: 1.5
+    format: 'h:mm'
+    expect_text: '12:00'
+
+  # --- fractions ---
+  - name: fixed denominator 3/8
+    value: 0.375
+    format: '# ?/8'
+    expect_text: ' 3/8'
+  - name: fixed denominator is not reduced
+    value: 2.5
+    format: '# ?/8'
+    expect_text: '2 4/8'
+  - name: single digit denominator
+    value: 0.125
+    format: '# ?/?'
+    expect_text: ' 1/8'
+  - name: two digit denominator alignment
+    value: 1.5
+    format: '# ??/??'
+    expect_text: '1  1/2 '
+  - name: improper fraction without whole part
+    value: 1.5
+    format: '?/?'
+    expect_text: '3/2'
+  - name: whole number hides the fraction
+    value: 2
+    format: '# ?/?'
+    expect_text: '2'
+  - name: third as a fraction
+    value: 0.3333333333333333
+    format: '# ??/??'
+    expect_text: '  1/3 '
+
+  # --- placeholders, thousands, scaling ---
+  - name: thousands separator
+    value: 1234567.891
+    format: '#,##0.00'
+    expect_text: '1,234,567.89'
+  - name: optional integer placeholder pads with space
+    value: 5
+    format: '??'
+    expect_text: ' 5'
+  - name: hash placeholder shows nothing for zero
+    value: 0.4
+    format: '#'
+    expect_text: ''
+  - name: fraction placeholder keeps alignment space
+    value: 0.5
+    format: '0.0?'
+    expect_text: '0.5 '
+  - name: scaling comma divides by a thousand
+    value: 123456
+    format: '#,##0,'
+    expect_text: '123'
+  - name: two scaling commas divide by a million
+    value: 12300000
+    format: '0.0,,'
+    expect_text: '12.3'
+
+  # --- percent and scientific ---
+  - name: integer percent
+    value: 0.5
+    format: '0%'
+    expect_text: '50%'
+  - name: scientific notation
+    value: 12345
+    format: '0.00E+00'
+    expect_text: '1.23E+04'
+  - name: scientific notation negative exponent
+    value: 0.000123
+    format: '0.0E+00'
+    expect_text: '1.2E-04'
+
+  # --- dates and the 1900 leap year bug ---
+  - name: plain date
+    value: 44927
+    format: 'yyyy-mm-dd'
+    expect_text: '2023-01-01'
+  - name: serial 60 is the fictitious 1900-02-29
+    value: 60
+    format: 'yyyy-mm-dd'
+    expect_text: '1900-02-29'
+  - name: serial 61 is 1900-03-01
+    value: 61
+    format: 'yyyy-mm-dd ddd'
+    expect_text: '1900-03-01 Thu'
+  - name: weekday before serial 61 is off by one like Excel
+    value: 59
+    format: 'ddd'
+    expect_text: 'Tue'
+  - name: 1904 date system serial zero
+    value: 0
+    format: 'yyyy-mm-dd'
+    date_system: excel_1904
+    expect_text: '1904-01-01'
+  - name: 1904 date system modern date
+    value: 43830
+    format: 'yyyy-mm-dd'
+    date_system: excel_1904
+    expect_text: '2024-01-01'
+  - name: month versus minute disambiguation
+    value: 44927.75
+    format: 'yyyy-mm-dd hh:mm'
+    expect_text: '2023-01-01 18:00'
+  - name: month names and literal comma
+    value: 44927
+    format: 'mmmm d, yyyy'
+    expect_text: 'January 1, 2023'
+  - name: twelve hour clock
+    value: 0.5
+    format: 'h:mm AM/PM'
+    expect_text: '12:00 PM'
+  - name: fractional seconds
+    value: 0.5
+    format: 'hh:mm:ss.0'
+    expect_text: '12:00:00.0'
+
+  # --- sections, conditions, colors ---
+  - name: negative section with parentheses
+    value: -5
+    format: '0.0;(0.0)'
+    expect_text: '(5.0)'
+  - name: zero section literal
+    value: 0
+    format: '0.0;-0.0;"zero"'
+    expect_text: 'zero'
+  - name: text section with placeholder
+    value: hi
+    format: '0.0;-0.0;"zero";@"!"'
+    expect_text: 'hi!'
+  - name: negative section color
+    value: -3
+    format: '0.0;[Red]-0.0'
+    expect_text: '-3.0'
+    expect_color: red
+  - name: condition selects first section
+    value: 150
+    format: '[>100][Green]0.0;[Red]0.0'
+    expect_text: '150.0'
+    expect_color: green
+  - name: condition falls through to else section
+    value: 50
+    format: '[>100][Green]0.0;[Red]0.0'
+    expect_text: '50.0'
+    expect_color: red
+
+  # --- literals, escapes, General, locales ---
+  - name: quoted literal suffix
+    value: 5
+    format: '0" kg"'
+    expect_text: '5 kg'
+  - name: escaped literal character
+    value: 5
+    format: '0\x'
+    expect_text: '5x'
+  - name: General keeps short decimals
+    value: 0.125
+    format: General
+    expect_text: '0.125'
+  - name: General drops trailing .0
+    value: 5
+    format: General
+    expect_text: '5'
+  - name: de-DE separators
+    value: 1234.5
+    format: '#,##0.00'
+    locale: de-DE
+    expect_text: '1.234,50'
+  - name: zh-CN weekday
+    value: 44927
+    format: 'dddd'
+    locale: zh-CN
+    expect_text: '星期日'

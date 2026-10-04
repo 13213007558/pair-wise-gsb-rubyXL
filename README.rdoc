@@ -264,6 +264,51 @@ It can also operate on +StringIO+ objects, thus eliminating the need to save the
 == For more information
 Take a look at the files in spec/lib/ for rspecs on most methods
 
+== Rendering number formats (display text for raw cell values)
+
+RubyXL::NumberFormatRenderer converts a raw cell value plus an OOXML number
+format code into the text a spreadsheet application would display, together
+with the font color requested by the format itself:
+
+  result = RubyXL::NumberFormatRenderer.render(0.125, '0.0%',
+                                               :locale => 'en-US',
+                                               :date_system => :excel_1900)
+  result.ok?   # => true
+  result.text  # => "12.5%"
+  result.color # => nil (:red, :green, ... when the format asks for it)
+
+Both +:locale+ (+'en-US'+, +'de-DE'+, +'zh-CN'+, +'ja-JP'+ built in, or a
+locale data Hash) and +:date_system+ (+:excel_1900+ / +:excel_1904+) must be
+given explicitly by the caller.
+
+Supported: up to four sections with conditions ([>100]), colors, quoted and
+escaped literals, 0/#/? placeholders, thousands separators and scaling
+commas, percent, scientific notation, fractions (variable and fixed
+denominators), dates/times including elapsed [h]/[m]/[s], and the month vs.
+minute disambiguation of "m". Rounding is done with BigDecimal (half away
+from zero) on the exact decimal representation - never through a
+low-precision string that is then zero-padded.
+
+Date systems: in +:excel_1900+, serial 1 is 1900-01-01, serial 60 is the
+fictitious 1900-02-29 (the Lotus 1-2-3 leap year bug Excel keeps for
+compatibility), serials above 60 are shifted by one day, and weekdays below
+serial 61 are off by one from the real calendar - exactly like Excel. In
+:excel_1904+, serial 0 is 1904-01-01 with no quirk.
+
+Formats that cannot be resolved offline (in-format locale/currency
+directives such as [$-409] or [$EUR-407], [DBNumN]/[NatNum] modifiers,
+unknown locale tags, negative date serials) return a structured Failure
+with +reason+, +detail+ and +directive+ instead of the raw value:
+
+  result = RubyXL::NumberFormatRenderer.render(1, '[$-409]0.00')
+  result.ok?       # => false
+  result.reason    # => :unsupported_locale_directive
+  result.directive # => "[$-409]"
+
+See spec/fixtures/number_format_samples.yml for an offline-verifiable
+sample set (negative zero, midpoint rounding, elapsed time over 24 hours,
+fixed-denominator fractions, and more).
+
 == Contributing to rubyXL
  
 * Check out the latest master to make sure the feature hasn't been implemented or the bug hasn't been fixed yet
