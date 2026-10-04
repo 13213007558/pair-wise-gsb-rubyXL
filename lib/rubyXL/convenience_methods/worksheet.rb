@@ -1,5 +1,9 @@
 module RubyXL
   module WorksheetConvenienceMethods
+    def print_plan(options = {})
+      RubyXL::PrintPlanner.plan(self, options)
+    end
+
     NAME = 0
     SIZE = 1
     COLOR = 2

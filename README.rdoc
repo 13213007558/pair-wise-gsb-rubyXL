@@ -180,6 +180,43 @@ Please note: these methods are being phased out in favor of the OOXML object mod
 ==== Changing Column Width
   worksheet.change_column_width(0, 30)  # Sets first column width to 30
 
+==== Planning printed pages
+The print planner performs deterministic geometry only: it uses stored row heights,
+column widths, page margins, hidden rows/columns and manual breaks. It never renders
+fonts and never starts Excel or a browser.
+
+  require 'rubyXL/convenience_methods'
+  plan = worksheet.print_plan(
+    :print_area => 'A1:F40',
+    :orientation => 'landscape',
+    :fit_to_width => 1,
+    :fit_to_height => 0,
+    :page_order => 'overThenDown'
+  )
+  plan[:page_count]
+  plan[:actual_scale_percent]
+  plan[:pages].each do |page|
+    page[:body_range]
+    page[:title_ranges]
+    page[:offset]
+  end
+
+Multiple space- or comma-separated print ranges are paginated independently. Within each
+range, +downThenOver+ fills downward first and +overThenDown+ fills across first. Repeated
+rows and columns are placed on every page and reserve scaled space, but they are returned
+separately and are never treated as new body coverage.
+
+In fit mode, manual breaks are hard boundaries and are never removed. Fit may reduce the
+scale but never raises it above 100 percent. If a break forces more pages than
++fitToWidth+ or +fitToHeight+ permits, +feasible+ is false and +conflict_reasons+ states
+which axis conflicts. The maximum scale is found by a monotone binary search over integer
+hundredths of a percent from 10.00 through 100.00; equality uses rational point arithmetic
+so a boundary that exactly fits is accepted while one point too small is rejected.
+
+Printer-independent tests may provide :page_size_points, :margins_points,
+:row_heights_points and :column_widths_points. Without overrides, dimensions come from
+paper size, orientation, worksheet margins and stored row/column geometry.
+
 ==== Merging Cells
   worksheet.merge_cells(0, 1, 2, 3)  # Merges B1:D3
   worksheet.merge_cells('A2:C4')     # Merges A2:C4

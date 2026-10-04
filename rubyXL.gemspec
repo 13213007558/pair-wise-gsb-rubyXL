@@ -57,6 +57,7 @@ Gem::Specification.new do |s|
     "lib/rubyXL/objects/ooxml_object.rb",
     "lib/rubyXL/objects/query_table.rb",
     "lib/rubyXL/objects/reference.rb",
+    "lib/rubyXL/print_planner.rb",
     "lib/rubyXL/objects/relationships.rb",
     "lib/rubyXL/objects/root.rb",
     "lib/rubyXL/objects/shared_strings.rb",
@@ -472,6 +473,7 @@ Gem::Specification.new do |s|
     "spec/lib/cell_spec.rb",
     "spec/lib/color_spec.rb",
     "spec/lib/parser_spec.rb",
+    "spec/lib/print_planner_spec.rb",
     "spec/lib/reference_spec.rb",
     "spec/lib/rgb_color_spec.rb",
     "spec/lib/stylesheet_spec.rb",
@@ -502,4 +504,3 @@ Gem::Specification.new do |s|
   s.add_development_dependency(%q<rspec_junit_formatter>.freeze, [">= 0".freeze])
   s.add_development_dependency(%q<rubocop>.freeze, [">= 0".freeze])
 end
-
