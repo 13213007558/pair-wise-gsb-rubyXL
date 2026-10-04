@@ -71,6 +71,7 @@ Gem::Specification.new do |s|
     "lib/rubyXL/objects/worksheet.rb",
     "lib/rubyXL/parser.rb",
     "lib/rubyXL/worksheet.rb",
+    "lib/rubyXL/worksheet_copier.rb",
     "rdoc/README_rdoc.html",
     "rdoc/RubyXL.html",
     "rdoc/RubyXL/AExtension.html",

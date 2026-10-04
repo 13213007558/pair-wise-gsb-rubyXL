@@ -108,6 +108,29 @@ Please note: these methods are being phased out in favor of the OOXML object mod
 ==== Adding Worksheets
   worksheet = workbook.add_worksheet('Sheet2')
 
+==== Copying Worksheets Between Workbooks
+A worksheet can be copied from one workbook into another together with everything
+it depends on: cell data, styles, shared strings, comments, images and hyperlinks.
+Relationship IDs and part URIs are re-assigned inside the target package, and shared
+resources (styles, shared strings, images) are reused by actual content, not by name.
+
+  new_sheet = target_workbook.copy_worksheet_from(source_workbook, 'Report')
+  # or: new_sheet = source_workbook['Report'].copy_to(target_workbook)
+
+Options:
+  target_workbook.copy_worksheet_from(source_workbook, 'Report',
+    :as => 'Imported',              # name for the new sheet
+    :external_references => :keep,  # rewrite references to other sheets of the source
+                                    # workbook as external links (default: :reject, raise)
+    :unsupported_parts => :skip)    # drop unsupported parts (default: :reject, raise)
+
+References pointing at the copied sheet itself are remapped to the new sheet.
+Before copying, the full dependency closure can be inspected:
+
+  plan = target_workbook.plan_worksheet_copy(source_workbook, 'Report')
+  plan.supported?          # false if the sheet depends on unsupported part types
+  plan.unsupported_parts # parts that would not be migrated
+
 ==== Renaming Worksheets
   worksheet.sheet_name = 'Cool New Name' # Note that sheet name is limited to 31 characters by Excel.
 

@@ -27,17 +27,33 @@ module RubyXL
       XLSX_PATH
     end
 
+    # Look up the content type registered for the given part name (e.g. '/xl/media/image1.png'),
+    # checking explicit overrides first, then extension defaults. Returns +nil+ if not found.
+    def content_type_for(part_name)
+      name = part_name.to_s
+
+      override = (overrides || []).find { |o| o.part_name == name }
+      return override.content_type if override
+
+      ext = File.extname(name)
+      ext = ext[1..-1] unless ext.empty?
+      default = (defaults || []).find { |d| d.extension == ext }
+      default && default.content_type
+    end
+
     def before_write_xml
       content_types_by_ext = {}
 
       # Collect all extensions and corresponding content types
       root.rels_hash.each_pair { |klass, objects|
         objects.each { |obj|
-          next unless klass.const_defined?(:CONTENT_TYPE)
+          obj_content_type = (obj.content_type if obj.respond_to?(:content_type))
+          obj_content_type ||= klass::CONTENT_TYPE if klass.const_defined?(:CONTENT_TYPE)
+          next if obj_content_type.nil?
           ext = obj.xlsx_path.extname[1..-1]
           next if ext.nil?
           content_types_by_ext[ext] ||= []
-          content_types_by_ext[ext] << klass::CONTENT_TYPE
+          content_types_by_ext[ext] << obj_content_type
         }
       }
 
@@ -55,11 +71,9 @@ module RubyXL
       # Add overrides for the files with known extensions but different content types.
       root.rels_hash.each_pair { |klass, objects|
         objects.each { |obj|
-          obj_content_type = case
-                             when obj.respond_to?(:content_type) then obj.content_type
-                             when defined?(klass::CONTENT_TYPE)  then klass::CONTENT_TYPE
-                             else next
-                             end
+          obj_content_type = (obj.content_type if obj.respond_to?(:content_type))
+          obj_content_type ||= klass::CONTENT_TYPE if defined?(klass::CONTENT_TYPE)
+          next if obj_content_type.nil?
 
           ext = obj.xlsx_path.extname[1..-1]
           next if defaults.any? { |d| (d.extension == ext) && (d.content_type == obj_content_type) }

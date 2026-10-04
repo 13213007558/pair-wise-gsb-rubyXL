@@ -2,7 +2,10 @@ module RubyXL
   class GenericStorageObject
     SAVE_ORDER = 0
 
-    attr_accessor :xlsx_path, :data, :generic_storage
+    # +content_type+ is normally +nil+, in which case the class-level +CONTENT_TYPE+
+    # is used when saving. It can be explicitly set (for example, when a part is
+    # copied from another workbook) to preserve the original part's content type.
+    attr_accessor :xlsx_path, :data, :generic_storage, :content_type
 
     def initialize(file_path, data)
       @xlsx_path = file_path

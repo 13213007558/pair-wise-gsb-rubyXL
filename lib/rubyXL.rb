@@ -1,5 +1,6 @@
 require 'rubyXL/objects/root'
 require 'rubyXL/parser'
+require 'rubyXL/worksheet_copier'
 
 module RubyXL
   @@suppress_warnings = false
