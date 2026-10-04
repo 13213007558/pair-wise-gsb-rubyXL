@@ -72,6 +72,10 @@ module RubyXL
         range = cols&.locate_range(column_index)
         c.style_index = row.style_index || range&.style_index || 0
         row.cells[column_index] = c
+
+        # If a dynamic-array engine is active on this worksheet, let it know
+        # about the direct write so it does not overwrite user data on recalc.
+        @dynamic_array_engine&.note_user_write(row_index, column_index)
       end
 
       c
