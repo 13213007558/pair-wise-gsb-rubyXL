@@ -1,5 +1,6 @@
 require 'rubyXL/objects/root'
 require 'rubyXL/parser'
+require 'rubyXL/dynamic_array'
 
 module RubyXL
   @@suppress_warnings = false

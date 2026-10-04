@@ -325,13 +325,14 @@ module RubyXL
     end
 
     def related_objects
-      [ calculation_chain, stylesheet, theme, shared_strings_container, macros ] + @worksheets
+      [ calculation_chain, stylesheet, theme, shared_strings_container, sheet_metadata, macros ] + @worksheets
     end
 
     define_relationship(RubyXL::SharedStringsTable, :shared_strings_container)
     define_relationship(RubyXL::Stylesheet,         :stylesheet)
     define_relationship(RubyXL::Theme,              :theme)
     define_relationship(RubyXL::CalculationChain,   :calculation_chain)
+    define_relationship(RubyXL::SheetMetadata,      :sheet_metadata)
     define_relationship(RubyXL::Worksheet,          false)
     define_relationship(RubyXL::Chartsheet,         false)
     define_relationship(RubyXL::Connections)
