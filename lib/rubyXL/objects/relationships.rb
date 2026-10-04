@@ -209,5 +209,30 @@ module RubyXL
       end
       self.generic_storage << related_file
     end
+
+    # Checks every preserved extension in this part against the relationships
+    # that will actually be written. If an extension references an rId that no
+    # longer exists (for example, its target image was deleted), the concrete
+    # dependencies are reported according to RubyXL.extension_dependency_policy:
+    # +:raise+ rejects the write with RubyXL::ExtensionDependencyError, while
+    # +:drop+ removes the entire offending extension before writing.
+    def validate_extension_dependencies!
+      return unless RubyXL.preserve_extensions
+      return if relationship_container.nil?
+
+      known_rids = relationship_container.relationships.map(&:id)
+      offenders = []
+
+      each_preserved_extension { |ext|
+        missing = ext.referenced_rids - known_rids
+        offenders << [ext, missing] unless missing.empty?
+      }
+      return if offenders.empty?
+
+      case RubyXL.extension_dependency_policy
+      when :drop then offenders.each { |ext, _missing| ext.detach! }
+      else raise RubyXL::ExtensionDependencyError.new(self, offenders)
+      end
+    end
   end
 end

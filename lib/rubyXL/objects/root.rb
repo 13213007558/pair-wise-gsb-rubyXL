@@ -59,6 +59,16 @@ module RubyXL
       OOXMLTopLevelObject::ROOT
     end
 
+    # Validates preserved extension dependencies in every part of the package,
+    # so that a rejected save (RubyXL::ExtensionDependencyError) happens before
+    # the destination file is touched. See RubyXL.preserve_extensions.
+    def validate_extension_dependencies!
+      return unless RubyXL.preserve_extensions
+      collect_related_objects.each { |obj|
+        obj.validate_extension_dependencies! if obj.respond_to?(:validate_extension_dependencies!)
+      }
+    end
+
     def self.parse_zip_file(zip_file)
       root = self.new
       root.content_types = RubyXL::ContentTypes.parse_file(zip_file, ContentTypes::XLSX_PATH)

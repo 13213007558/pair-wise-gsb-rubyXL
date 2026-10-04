@@ -257,6 +257,56 @@ It can also operate on +StringIO+ objects, thus eliminating the need to save the
 
   RubyXL.class_variable_set(:@@suppress_warnings, true)
 
+=== Preserving unknown extensions (round-trip safety)
+
+Files produced by newer Excel versions (or third-party tools) often contain
+extension markup that RubyXL does not natively model: +extLst+ extensions,
++mc:Ignorable+ declarations, namespaced attributes such as +x14ac:dyDescent+,
+or entirely foreign elements. By default RubyXL drops unknown attributes and
+raises on unknown child elements, so editing a single cell could silently
+destroy that information. Enabling preservation mode makes the parser capture
+unknown attributes and child elements verbatim and write them back out with
+the part they came from, while all natively supported objects remain fully
+editable:
+
+  RubyXL.preserve_extensions = true
+  workbook = RubyXL::Parser.parse('file_with_extensions.xlsx')
+  workbook['Sheet1'].add_cell(0, 0, 'updated')
+  workbook.write('file_with_extensions.xlsx')   # extensions survive
+
+Namespace URIs, the relative order of preserved nodes, and relationship
+references (r:id/r:embed/r:link) inside extensions are preserved. Prefixes
+may be re-generated if they collide, but never in a way that changes meaning.
+
+==== Note on mc:Ignorable vs. mc:AlternateContent
+
+RubyXL treats the two Markup Compatibility mechanisms differently, on purpose:
+
+* +mc:Ignorable+ is only a declaration ("you may skip these namespaces").
+  It is preserved verbatim and never pruned, because a stale entry is
+  harmless, while a missing one could invalidate mc:AlternateContent choices.
+* +mc:AlternateContent+ wraps a +mc:Choice+ (extension representation) and a
+  +mc:Fallback+ (downlevel representation) of the *same* feature. As long as
+  you do not edit that feature through RubyXL, the pair is kept verbatim and
+  stays self-consistent. But when RubyXL regenerates the same feature as a
+  supported node (e.g. you add a data validation while the file carries a
+  dataValidations AlternateContent), emitting the preserved pair next to the
+  fresh node would produce a stale Choice and a duplicate Fallback that
+  contradict it. In that case the entire mc:AlternateContent is dropped:
+  RubyXL's authoritative output wins, and no contradictory Choice/Fallback
+  pair is ever written.
+
+==== Extension dependency checking
+
+Preserved extensions may reference relationships of their part (for example,
+an extension that points at an image via +r:embed+). If your edit deletes
+such a target, saving with the default policy raises
+RubyXL::ExtensionDependencyError *before* the destination file is touched,
+naming the part, the missing rIds and the offending extension:
+
+  RubyXL.extension_dependency_policy = :raise  # default: reject the write
+  RubyXL.extension_dependency_policy = :drop   # remove the offending extension instead
+
 == Data validation (colloquially referred to as "dropdown list")
 
   worksheet.add_validation_list("A1", [ "value1", "value2" ])

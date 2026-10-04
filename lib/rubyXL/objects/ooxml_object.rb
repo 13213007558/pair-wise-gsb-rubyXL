@@ -141,14 +141,17 @@ module RubyXL
 
         attr_params = known_attributes[attr_name]
 
-        next if attr_params.nil?
         # raise "Unknown attribute [#{attr_name}] for element [#{node.name}]" if attr_params.nil?
-        process_attribute(obj, attr.value, attr_params) unless attr_params[:computed]
+        if attr_params.nil? then
+          obj.record_unknown_attribute(attr) if RubyXL.preserve_extensions
+        else
+          process_attribute(obj, attr.value, attr_params) unless attr_params[:computed]
+        end
       }
 
       known_child_nodes = obtain_class_variable(:@@ooxml_child_nodes)
 
-      unless known_child_nodes.empty?
+      if !known_child_nodes.empty? || RubyXL.preserve_extensions then
         known_namespaces ||= obtain_class_variable(:@@ooxml_namespaces)
 
         node.element_children.each { |child_node|
@@ -164,8 +167,17 @@ module RubyXL
                             end
 
           child_node_params = known_child_nodes[child_node_name]
-          raise "Unknown child node [#{child_node_name}] for element [#{node.name}]" if child_node_params.nil?
+
+          if child_node_params.nil? then
+            if RubyXL.preserve_extensions then
+              obj.record_unknown_child(child_node)
+              next
+            end
+            raise "Unknown child node [#{child_node_name}] for element [#{node.name}]"
+          end
+
           parsed_object = child_node_params[:class].parse(child_node, known_namespaces)
+          parsed_object.parent_object = obj if parsed_object.respond_to?(:parent_object=)
           if child_node_params[:is_array] then
             index = parsed_object.index_in_collection
 
@@ -230,6 +242,8 @@ module RubyXL
 
     def initialize(params = nil)
       @local_namespaces = nil
+      @unknown_attributes = []
+      @unknown_children = []
       params ||= {}
 
       obtain_class_variable(:@@ooxml_attributes).each_value { |v|
@@ -238,6 +252,79 @@ module RubyXL
 
       init_child_nodes(params)
     end
+
+    # Attributes of the source element that RubyXL does not natively understand.
+    # Only populated when RubyXL.preserve_extensions is enabled. Each entry is a
+    # Hash of +:name+, +:prefix+, +:href+ (namespace URI) and +:value+.
+    attr_accessor :unknown_attributes
+
+    # Child elements of the source element that RubyXL does not natively
+    # understand, as RubyXL::PreservedNode objects, in source document order.
+    # Only populated when RubyXL.preserve_extensions is enabled.
+    attr_accessor :unknown_children
+
+    def record_unknown_attribute(attr)
+      unknown_attributes << {
+        :name   => attr.name,
+        :prefix => attr.namespace&.prefix,
+        :href   => attr.namespace&.href,
+        :value  => attr.value
+      }
+    end
+
+    def record_unknown_child(node)
+      unknown_children << RubyXL::PreservedNode.new(node, self)
+    end
+
+    # Yields every preserved extension node (raw +ext+/+mc:AlternateContent+
+    # payloads and unknown child fragments) found in this object's subtree.
+    def each_preserved_extension(&block)
+      unknown_children.each(&block)
+
+      child_objs = []
+      obtain_class_variable(:@@ooxml_child_nodes).each_value { |v|
+        val = send(v[:accessor])
+        child_objs.concat(val.is_a?(Array) ? val : [val])
+      }
+      child_objs.concat(self) if is_a?(RubyXL::OOXMLContainerObject)
+
+      child_objs.compact.each { |child|
+        yield child if child.is_a?(RubyXL::RawOOXML)
+        child.each_preserved_extension(&block) if child.respond_to?(:each_preserved_extension)
+      }
+    end
+
+    # Detaches a preserved extension node (see RubyXL::ExtensionPreservation#detach!)
+    # from this object. Returns +true+ if the node was found and removed.
+    def remove_preserved_child(node)
+      removed = remove_by_identity(unknown_children, node)
+
+      if is_a?(RubyXL::OOXMLContainerObject) then
+        removed = remove_by_identity(self, node) || removed
+      end
+
+      obtain_class_variable(:@@ooxml_child_nodes).each_value { |v|
+        val = send(v[:accessor])
+        if val.is_a?(Array) then
+          removed = remove_by_identity(val, node) || removed
+        elsif val.equal?(node) then
+          send("#{v[:accessor]}=", nil)
+          removed = true
+        end
+      }
+
+      node.parent_object = nil if removed && node.respond_to?(:parent_object=)
+      removed
+    end
+
+    # Removes the first element that IS (identity, not ==) +node+ from +array+.
+    # Identity comparison is required because value equality of raw extension
+    # payloads is not discriminating enough.
+    def remove_by_identity(array, node)
+      index = array.index { |item| item.equal?(node) }
+      !index.nil? && !array.delete_at(index).nil?
+    end
+    private :remove_by_identity
 
     def init_child_nodes(params)
       obtain_class_variable(:@@ooxml_child_nodes).each_value { |v|
@@ -323,6 +410,11 @@ module RubyXL
       # Then, add defaults. Note that if some namespace prefix was already set, Nokogiri will NOT change that namespace.
       obtain_class_variable(:@@ooxml_namespaces).each_pair { |href, prefix| elem.add_namespace_definition(prefix, href) }
 
+      # Re-apply attributes that were preserved from the source document (if any).
+      # This must happen after namespace definitions so that namespaced attributes
+      # can be bound to a declared prefix.
+      apply_preserved_attributes(elem)
+
       child_nodes = obtain_class_variable(:@@ooxml_child_nodes)
       child_nodes.each_pair { |child_node_name, child_node_params|
         node_obj = get_node_object(child_node_params)
@@ -331,15 +423,95 @@ module RubyXL
         if node_obj.respond_to?(:write_xml) && !node_obj.equal?(self) then
           # If child node is either +OOXMLObject+, or +OOXMLContainerObject+ on its first (envelope) pass,
           # serialize that object.
-          elem << node_obj.write_xml(xml, child_node_name)
+          append_child_markup(elem, node_obj.write_xml(xml, child_node_name))
         else
           # If child node is either vanilla +Array+, or +OOXMLContainerObject+ on its seconds (content) pass,
           # serialize its members.
-          node_obj.each { |item| elem << item.write_xml(xml, child_node_name) unless item.nil? }
+          node_obj.each { |item| append_child_markup(elem, item.write_xml(xml, child_node_name)) unless item.nil? }
         end
       }
+
+      # Finally, re-attach preserved unknown child elements (if any), in their
+      # original relative order. They go last because extension content is
+      # schema-ordered after all known content in OOXML.
+      unknown_children.each { |fragment| append_child_markup(elem, fragment.raw_xml) }
+
       elem
     end
+
+    MARKUP_COMPATIBILITY_NAMESPACE = 'http://schemas.openxmlformats.org/markup-compatibility/2006'.freeze
+
+    # Appends a piece of generated markup (a Nokogiri node, or a raw XML String
+    # produced by RubyXL::RawOOXML and preserved fragments) to +elem+.
+    #
+    # mc:AlternateContent policy: a preserved +mc:AlternateContent+ wraps a
+    # +mc:Choice+ (extension representation) and a +mc:Fallback+ (downlevel
+    # representation) of the *same* feature. As long as RubyXL does not write
+    # that feature itself, the pair is kept verbatim and stays self-consistent.
+    # But when RubyXL regenerates the same feature as a supported node (its
+    # element name matches the Fallback root), emitting the preserved pair
+    # alongside would produce a stale Choice and a duplicate Fallback that
+    # contradict the freshly written node. In that case the entire
+    # +mc:AlternateContent+ is dropped: RubyXL's authoritative output wins,
+    # and no contradictory Choice/Fallback pair is ever emitted.
+    def append_child_markup(elem, markup)
+      return if markup.nil? || markup == ''
+      return if markup.is_a?(String) && conflicting_alternate_content?(elem, markup)
+      elem << markup
+    end
+    private :append_child_markup
+
+    def conflicting_alternate_content?(elem, markup)
+      return false unless RubyXL.preserve_extensions
+
+      ac = Nokogiri::XML::DocumentFragment.parse(markup).element_children.first
+      return false unless ac && ac.name == 'AlternateContent' &&
+                          (ac.namespace.nil? || ac.namespace.href == MARKUP_COMPATIBILITY_NAMESPACE)
+
+      fallback = ac.element_children.find { |n| n.name == 'Fallback' }
+      fallback_root = fallback && fallback.element_children.first
+      return false if fallback_root.nil?
+
+      # The fragment is parsed without the source document's default namespace,
+      # so a +nil+ href on the Fallback root means "the document's default
+      # namespace" and matches any generated element with the same local name.
+      fallback_ns = fallback_root.namespace&.href
+      elem.element_children.any? { |c|
+        c.name == fallback_root.name && (fallback_ns.nil? || c.namespace&.href == fallback_ns)
+      }
+    end
+    private :conflicting_alternate_content?
+
+    # Writes attributes captured from the source document that RubyXL does not
+    # natively understand. Namespace URIs are preserved; if the original prefix
+    # is already taken by a different URI on this element, a fresh prefix is
+    # generated (prefixes may change, semantics may not).
+    def apply_preserved_attributes(elem)
+      unknown_attributes.each { |unknown_attr|
+        if unknown_attr[:href] then
+          ns = elem.namespace_definitions.find { |d| d.href == unknown_attr[:href] }
+          if ns.nil? then
+            prefix = deduplicate_prefix(elem, unknown_attr[:prefix], unknown_attr[:href])
+            ns = elem.add_namespace_definition(prefix, unknown_attr[:href])
+          end
+          elem["#{ns.prefix}:#{unknown_attr[:name]}"] = unknown_attr[:value]
+        else
+          elem[unknown_attr[:name]] = unknown_attr[:value]
+        end
+      }
+    end
+    private :apply_preserved_attributes
+
+    def deduplicate_prefix(elem, prefix, href)
+      candidate = prefix
+      suffix = 0
+      while elem.namespace_definitions.any? { |d| d.prefix == candidate && d.href != href }
+        suffix += 1
+        candidate = "#{prefix}#{suffix}"
+      end
+      candidate
+    end
+    private :deduplicate_prefix
 
     # Prototype method. For sparse collections (+Rows+, +Cells+, etc.) must return index at which this object
     # is expected to reside in the collection. If +nil+ is returned, then object is simply added
@@ -457,6 +629,7 @@ module RubyXL
     # === Parameters
     # * +zipfile+ - ::Zip::File to which the resulting XNMML should be added.
     def add_to_zip(zip_stream)
+      validate_extension_dependencies! if respond_to?(:validate_extension_dependencies!)
       xml_string = write_xml
       return false if xml_string.empty?
       zip_stream.put_next_entry(RubyXL::from_root(self.xlsx_path))
