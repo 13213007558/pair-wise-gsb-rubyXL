@@ -1,3 +1,7 @@
+# frozen_string_literal: true
+
+require 'rubyXL/print_planner'
+
 module RubyXL
   module WorksheetConvenienceMethods
     NAME = 0
@@ -7,6 +11,10 @@ module RubyXL
     BOLD = 4
     UNDERLINE = 5
     STRIKETHROUGH = 6
+
+    def print_plan(options = {})
+      RubyXL::PrintPlanner.plan(self, options)
+    end
 
     def insert_cell(row = 0, col = 0, data = nil, formula = nil, shift = nil)
       validate_workbook

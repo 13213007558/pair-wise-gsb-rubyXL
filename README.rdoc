@@ -103,6 +103,45 @@ Please note: these methods are being phased out in favor of the OOXML object mod
   worksheet.get_column_border(0, :right)
   worksheet.get_column_border_color(0, :right)
 
+=== Planning print pages
+Print page breaks can be calculated without rendering text or starting Excel:
+  result = worksheet.print_plan(
+    print_area: 'A1:H40',
+    mode: :fit,
+    fit_to_width: 1,
+    fit_to_height: 0,
+    orientation: 'landscape',
+    repeat_rows: [0, 1],
+    repeat_columns: [0],
+    hidden_rows: [4],
+    row_breaks: [15],
+    column_breaks: [6]
+  )
+
+  result.scale             # Largest integer percentage used by every page
+  result.pages.count       # Number of printed page slices
+  result.pages.each do |page|
+    page.body_ranges       # Visible body cell rectangles on this page
+    page.title_row_ranges  # Repeated top-title rectangles on this page
+    page.title_column_ranges # Repeated left-title rectangles
+    page.row_offset        # Unscaled visible-body offset in points
+    page.column_offset
+    page.scaled_row_offset # Same offsets after applying scale
+    page.scaled_column_offset
+  end
+
+Manual breaks are hard boundaries in fit mode: content does not cross them,
+and each band is fit independently. If those bands require more pages than
++fitToWidth+ or +fitToHeight+ allows, the pages are returned and the reason is
+listed in +result.conflicts+. The fit search uses integer percentages from
+100 through 10 and upper-midpoint binary search, so the result can be rechecked
+by testing +result.scale+ and +result.scale - 1+ with the same dimensions.
+
+For hand-calculated tests, +page_width+, +page_height+, +row_heights+ and
++column_widths+ may be supplied directly in points. The margins default to the
+OOXML normal-page defaults and can be overridden through +left+, +right+, +top+
+and +bottom+ (inches).
+
 === Modifying
 
 ==== Adding Worksheets

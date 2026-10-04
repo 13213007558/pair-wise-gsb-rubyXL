@@ -29,6 +29,7 @@ Gem::Specification.new do |s|
     "Rakefile",
     "VERSION",
     "lib/rubyXL.rb",
+    "lib/rubyXL/print_planner.rb",
     "lib/rubyXL/cell.rb",
     "lib/rubyXL/convenience_methods.rb",
     "lib/rubyXL/convenience_methods/cell.rb",
@@ -502,4 +503,3 @@ Gem::Specification.new do |s|
   s.add_development_dependency(%q<rspec_junit_formatter>.freeze, [">= 0".freeze])
   s.add_development_dependency(%q<rubocop>.freeze, [">= 0".freeze])
 end
-
