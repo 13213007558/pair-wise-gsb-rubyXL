@@ -121,6 +121,19 @@ Please note: these methods are being phased out in favor of the OOXML object mod
   worksheet[0][0].add_shared_string('some text') # Creates a new Shared String and adds it to the cell.
                                                  # Later, the same Shared String can be added to other cells.
 
+==== Moving a Range of Cells
+  worksheet.move_range('B2:D8', 'G2')                 # Cut B2:D8 and paste it at G2 (same sheet)
+  workbook.move_range('Sheet1!B2:D8', "'My Sheet'!E5") # ... or onto another worksheet
+
+# Like Excel's cut/paste (and unlike copy/paste), all references to the moved
+# cells are repointed to the new location throughout the workbook - in cell
+# formulas on every sheet, defined names, data validations and chart series
+# formulas - regardless of $ anchors. Ranges that partially overlap the moved
+# range are split into a union of rectangles (or abort the move with
+# +on_partial => :raise+). Formulas containing external, structured (table)
+# or 3D references are reported before anything is changed, and a failed move
+# leaves the workbook unmodified.
+
 ==== Changing Fonts
   worksheet.sheet_data[0][0].change_font_bold(true) # Makes A1 bold
   worksheet.change_row_italics(0,true)              # Makes first row italicized
