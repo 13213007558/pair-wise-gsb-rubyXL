@@ -185,6 +185,23 @@ Please note: these methods are being phased out in favor of the OOXML object mod
   worksheet.merge_cells('A2:C4')     # Merges A2:C4
   worksheet.merge_cells(row_from: 0, row_to: 1, col_from: 2, col_to: 3) # Merges C1:D2
 
+==== Moving a Range of Cells (cut/paste)
+This method moves a rectangular range of cells to another location (possibly on
+another worksheet), clearing the source and replacing whatever the destination
+held. Unlike the insert/delete methods above, it updates everything that
+references the moved cells: cell formulas on every worksheet, defined names,
+data validations (formulas and +sqref+ ranges), merged cell ranges and chart
+series formulas. Absolute (+$+) markers only constrain copying, so they do not
+prevent references to moved cells from being updated. References inside string
+constants are left alone, ranges that partially overlap the moved range are
+split into a union of rectangles where the file format allows it, and rejected
+with RubyXL::MoveError everywhere else. External (+[1]Sheet1!A1+), 3-D
+(+Sheet1:Sheet3!A1+) and structured (+Table1[Column]+) references are not
+supported and are reported before any change is made; a failed move leaves the
+workbook unmodified.
+  workbook.move_range('Sheet1!B2:D8', 'Sheet2!A1') # Moves Sheet1!B2:D8 to Sheet2, top-left at A1
+  worksheet.move_range('B2:D8', 'F10')             # Moves within the same worksheet
+
 ==== Insert Row
 This method will insert a row at specified index, pushing all rows below it down. It also copies styles from row above.
 
