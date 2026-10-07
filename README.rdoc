@@ -33,6 +33,24 @@ If you do not care about your RAM usage, just include them all at once by adding
 === Creating a new Workbook
   workbook = RubyXL::Workbook.new
 
+=== Evaluating conditional formatting
+
+When exporting a worksheet to a format that has no notion of conditional
+formatting, you can resolve the effective style of every cell in a range
+(base style merged with the differential styles of all matching rules):
+  result = worksheet.evaluate_conditional_formatting("A1:C10") # or nil for all CF ranges
+  style = result["B2"]
+  style.font_color         # effective font color, incl. matching dxf rules
+  style.fill_color         # effective fill color, incl. colorScale interpolation
+  style.applied_rules      # every matching rule and the properties it contributed
+  style.contributing_rules # only the rules that actually changed the style
+  style.unevaluatable_rules # rules that could not be evaluated (never treated as false)
+
+Supported rule types: cellIs, expression, duplicateValues, top10 and
+colorScale. Formulas are limited to numbers, string/boolean literals,
+comparisons, arithmetic, boolean combinations (AND/OR/NOT) and cell
+references; anything else is reported as unevaluatable.
+
 === Accessing
 
 ==== Accessing a Worksheet
