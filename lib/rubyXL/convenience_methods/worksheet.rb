@@ -1,3 +1,5 @@
+require 'rubyXL/conditional_formatting/evaluator'
+
 module RubyXL
   module WorksheetConvenienceMethods
     NAME = 0
@@ -7,6 +9,23 @@ module RubyXL
     BOLD = 4
     UNDERLINE = 5
     STRIKETHROUGH = 6
+
+    # Evaluates the conditional formatting rules declared on this worksheet.
+    #
+    # With no arguments every cell covered by any declared sqref is evaluated;
+    # pass an A1-style reference or a RubyXL::Reference to limit the region.
+    # Returns a Hash of zero-based [row, column] =>
+    # RubyXL::ConditionalFormatRules::CellStyleResult, where +style+ is the base
+    # style overlaid with every differential style that fired.
+    def evaluate_conditional_formattings(range = nil)
+      RubyXL::ConditionalFormatRules::Evaluator.new(self).evaluate(range)
+    end
+
+    # Convenience wrapper returning the CellStyleResult for a single cell.
+    def conditional_formatting_at(reference)
+      ref = reference.is_a?(RubyXL::Reference) ? reference : RubyXL::Reference.new(reference.to_s)
+      evaluate_conditional_formattings(nil)[[ref.first_row, ref.first_col]]
+    end
 
     def insert_cell(row = 0, col = 0, data = nil, formula = nil, shift = nil)
       validate_workbook
